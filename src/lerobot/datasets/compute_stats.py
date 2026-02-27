@@ -1,6 +1,9 @@
-#!/usr/bin/env python
-
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+#!/usr/bin/env python3
+# Copyright (c) 2026 Dexteleop Intelligence (灵御智能)
+#
+# This file is modified from the lerobot project:
+# https://github.com/huggingface/lerobot
+# Original copyright: Copyright 2024 The Hugging Face team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,7 +42,7 @@ def estimate_num_samples(
 
 
 def sample_indices(data_len: int) -> list[int]:
-    num_samples = estimate_num_samples(data_len)
+    num_samples = 3
     return np.round(np.linspace(0, data_len - 1, num_samples)).astype(int).tolist()
 
 
@@ -88,7 +91,12 @@ def compute_episode_stats(episode_data: dict[str, list[str] | np.ndarray], featu
         if features[key]["dtype"] == "string":
             continue  # HACK: we should receive np.arrays of strings
         elif features[key]["dtype"] in ["image", "video"]:
-            ep_ft_array = sample_images(data)  # data is a list of image paths
+            if isinstance(data, np.ndarray):
+                # Data is pre-sampled frames from MP4 (already uint8, shape: (N, C, H, W))
+                ep_ft_array = data
+            else:
+                # Data is a list of image paths, sample from PNG files
+                ep_ft_array = sample_images(data)
             axes_to_reduce = (0, 2, 3)  # keep channel dim
             keepdims = True
         else:

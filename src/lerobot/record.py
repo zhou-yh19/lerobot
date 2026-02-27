@@ -1,4 +1,9 @@
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+#!/usr/bin/env python
+# Copyright (c) 2026 Dexteleop Intelligence (灵御智能)
+#
+# This file is modified from the lerobot project:
+# https://github.com/huggingface/lerobot
+# Original copyright: Copyright 2024 The Hugging Face team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -63,6 +68,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from pprint import pformat
 
+import numpy as np
+
 from lerobot.cameras import (  # noqa: F401
     CameraConfig,  # noqa: F401
 )
@@ -70,10 +77,11 @@ from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # no
 from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig  # noqa: F401
 from lerobot.configs import parser
 from lerobot.configs.policies import PreTrainedConfig
+from lerobot.datasets.compute_stats import auto_downsample_height_width, sample_indices
 from lerobot.datasets.image_writer import safe_stop_image_writer
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame, hw_to_dataset_features
-from lerobot.datasets.video_utils import VideoEncodingManager
+from lerobot.datasets.video_utils import VideoEncodingManager, decode_video_frames
 from lerobot.policies.factory import make_policy
 from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.robots import (  # noqa: F401
@@ -185,6 +193,62 @@ class RecordConfig:
     def __get_path_fields__(cls) -> list[str]:
         """This enables the parser to load config from the policy using `--policy.path=local/dir`"""
         return ["policy"]
+
+
+def sample_frames_from_video(video_path: Path, episode_length: int, fps: int, width: int, height: int) -> np.ndarray:
+    """Sample frames from a video file for stats computation.
+
+    Args:
+        video_path: Path to the MP4 video file
+        episode_length: Number of frames in the episode
+        fps: Frames per second
+        width: Width of the frames
+        height: Height of the frames
+
+    Returns:
+        Sampled frames as numpy array of shape (num_samples, channels, height, width)
+        with dtype uint8
+    """
+    # Use the same sampling strategy as compute_stats.py
+    sampled_indices = sample_indices(episode_length)
+
+    # Convert frame indices to timestamps
+    timestamps = [idx / fps for idx in sampled_indices]
+
+    # Decode frames at the sampled timestamps
+    # decode_video_frames returns torch.Tensor of shape (num_frames, C, H, W)
+    # in float32 range [0, 1]. We need to convert to uint8 [0, 255] and apply downsampling
+    try:
+        import torch
+        frames_tensor = decode_video_frames(
+            video_path=video_path,
+            timestamps=timestamps,
+            tolerance_s=1.0 / fps,  # Allow 1 frame tolerance
+            width=width,  # Force use coded resolution to decode!
+            height=height,  # Force use coded resolution to decode!
+        )
+
+        # Convert to numpy: (num_frames, C, H, W) with values [0, 255]
+        # decode_video_frames returns float32 in [0, 1], so multiply by 255
+        frames_np = (frames_tensor.numpy() * 255).astype(np.uint8)
+
+        # Apply downsampling to reduce memory usage (same as sample_images)
+        sampled_frames = []
+        for i in range(len(frames_np)):
+            frame = frames_np[i]  # (C, H, W)
+            frame_downsampled = auto_downsample_height_width(frame)
+            sampled_frames.append(frame_downsampled)
+
+        result = np.stack(sampled_frames, axis=0)
+        logging.info(
+            f"Sampled {len(sampled_indices)} frames from {video_path.name}: "
+            f"shape={result.shape}, dtype={result.dtype}"
+        )
+        return result
+
+    except Exception as e:
+        logging.error(f"Failed to sample frames from {video_path}: {e}")
+        raise
 
 
 @safe_stop_image_writer

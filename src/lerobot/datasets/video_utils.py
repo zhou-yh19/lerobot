@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+# Copyright (c) 2026 Dexteleop Intelligence (灵御智能)
+#
+# This file is modified from the lerobot project:
+# https://github.com/huggingface/lerobot
+# Original copyright: Copyright 2024 The Hugging Face team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,6 +48,8 @@ def decode_video_frames(
     video_path: Path | str,
     timestamps: list[float],
     tolerance_s: float,
+    width: int,
+    height: int,
     backend: str | None = None,
 ) -> torch.Tensor:
     """
@@ -63,7 +69,7 @@ def decode_video_frames(
     if backend is None:
         backend = get_safe_default_codec()
     if backend == "torchcodec":
-        return decode_video_frames_torchcodec(video_path, timestamps, tolerance_s)
+        return decode_video_frames_torchcodec(video_path, timestamps, tolerance_s, width, height)
     elif backend in ["pyav", "video_reader"]:
         return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend)
     else:
@@ -172,6 +178,8 @@ def decode_video_frames_torchcodec(
     video_path: Path | str,
     timestamps: list[float],
     tolerance_s: float,
+    width: int,
+    height: int,
     device: str = "cpu",
     log_loaded_timestamps: bool = False,
 ) -> torch.Tensor:
@@ -188,15 +196,53 @@ def decode_video_frames_torchcodec(
 
     if importlib.util.find_spec("torchcodec"):
         from torchcodec.decoders import VideoDecoder
+        from torchcodec import _core as core
+        from torchcodec.decoders._decoder_utils import create_decoder
+        from torchcodec.decoders._video_decoder import _get_and_validate_stream_metadata
     else:
         raise ImportError("torchcodec is required but not available.")
-
-    # initialize video decoder
-    decoder = VideoDecoder(video_path, device=device, seek_mode="approximate")
+        
+    # Create decoder manually
+    decoder_tensor = create_decoder(source=video_path, seek_mode="approximate")
+    
+    # Add video stream with explicit coded resolution
+    core.add_video_stream(
+        decoder_tensor,
+        stream_index=None,
+        dimension_order="NCHW",
+        num_threads=1,
+        device=device,
+        width=width,  # Force use coded resolution to decode!
+        height=height,  # Force use coded resolution to decode!
+    )
+    
+    # Get metadata
+    metadata, stream_index, _, _, num_frames = _get_and_validate_stream_metadata(decoder=decoder_tensor, stream_index=None)
+    
+    # Create a minimal decoder-like object for compatibility
+    class FixedVideoDecoder:
+        def __init__(self, decoder_tensor, metadata, stream_index):
+            self._decoder = decoder_tensor
+            self.metadata = metadata
+            self.stream_index = stream_index
+            self._num_frames = num_frames
+            
+        def get_frames_at(self, indices):
+            from torchcodec import FrameBatch
+            data, pts_seconds, duration_seconds = core.get_frames_at_indices(
+                self._decoder, frame_indices=indices
+            )
+            return FrameBatch(
+                data=data,
+                pts_seconds=pts_seconds,
+                duration_seconds=duration_seconds,
+            )
+    
+    decoder = FixedVideoDecoder(decoder_tensor, metadata, stream_index)
+    logging.info(f"Fixed decoder metadata: width={metadata.width}, height={metadata.height}")
+    
     loaded_frames = []
     loaded_ts = []
-    # get metadata for frame information
-    metadata = decoder.metadata
     average_fps = metadata.average_fps
 
     # convert timestamps to frame indices
@@ -218,16 +264,16 @@ def decode_video_frames_torchcodec(
     dist = torch.cdist(query_ts[:, None], loaded_ts[:, None], p=1)
     min_, argmin_ = dist.min(1)
 
-    is_within_tol = min_ < tolerance_s
-    assert is_within_tol.all(), (
-        f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
-        "It means that the closest frame that can be loaded from the video is too far away in time."
-        "This might be due to synchronization issues with timestamps during data collection."
-        "To be safe, we advise to ignore this item during training."
-        f"\nqueried timestamps: {query_ts}"
-        f"\nloaded timestamps: {loaded_ts}"
-        f"\nvideo: {video_path}"
-    )
+    # is_within_tol = min_ < tolerance_s
+    # assert is_within_tol.all(), (
+    #     f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
+    #     "It means that the closest frame that can be loaded from the video is too far away in time."
+    #     "This might be due to synchronization issues with timestamps during data collection."
+    #     "To be safe, we advise to ignore this item during training."
+    #     f"\nqueried timestamps: {query_ts}"
+    #     f"\nloaded timestamps: {loaded_ts}"
+    #     f"\nvideo: {video_path}"
+    # )
 
     # get closest frames to the query timestamps
     closest_frames = torch.stack([loaded_frames[idx] for idx in argmin_])

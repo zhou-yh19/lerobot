@@ -1,6 +1,9 @@
 #!/usr/bin/env python
-
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+# Copyright (c) 2026 Dexteleop Intelligence (灵御智能)
+#
+# This file is modified from the lerobot project:
+# https://github.com/huggingface/lerobot
+# Original copyright: Copyright 2024 The Hugging Face team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -803,12 +806,33 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 )
                 if frame_index == 0:
                     img_path.parent.mkdir(parents=True, exist_ok=True)
-                self._save_image(frame[key], img_path)
+                # self._save_image(frame[key], img_path)
                 self.episode_buffer[key].append(str(img_path))
             else:
                 self.episode_buffer[key].append(frame[key])
 
         self.episode_buffer["size"] += 1
+
+    def delete_final_frame(self) -> None:
+        """
+        This function only adds the frame to the episode_buffer. Apart from images — which are written in a
+        temporary directory — nothing is written to disk. To save those frames, the 'save_episode()' method
+        then needs to be called.
+        """
+        self.episode_buffer["size"] -= 1
+        self.episode_buffer['task'].pop()
+        self.episode_buffer['action'].pop()
+        self.episode_buffer['observation.state'].pop()
+        self.episode_buffer['timestamp'].pop()
+        self.episode_buffer['frame_index'].pop()
+        if 'observation.images.head_camera' in self.episode_buffer:
+            self.episode_buffer['observation.images.head_camera'].pop()
+        if 'observation.images.chest_camera' in self.episode_buffer:
+            self.episode_buffer['observation.images.chest_camera'].pop()
+        if 'observation.images.left_color' in self.episode_buffer:
+            self.episode_buffer['observation.images.left_color'].pop()
+        if 'observation.images.right_color' in self.episode_buffer:
+            self.episode_buffer['observation.images.right_color'].pop()
 
     def save_episode(self, episode_data: dict | None = None) -> None:
         """
