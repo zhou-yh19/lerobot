@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+# Copyright (c) 2026 Dexteleop Intelligence (灵御智能)
+#
+# This file is modified from the lerobot project:
+# https://github.com/huggingface/lerobot
+# Original copyright: Copyright 2024 The Hugging Face team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -367,6 +371,11 @@ def visualize_dataset_html(
 
     static_dir = output_dir / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
+
+    logo_src = template_dir / "dexteleop.png"
+    logo_dst = static_dir / "dexteleop.png"
+    if logo_src.exists() and not logo_dst.exists():
+        shutil.copy2(logo_src, logo_dst)
 
     if dataset is None:
         if serve:
