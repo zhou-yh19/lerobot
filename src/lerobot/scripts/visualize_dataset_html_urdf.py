@@ -33,7 +33,7 @@ Example of usage:
 
 - Visualize data stored on a local machine:
 ```bash
-local$ python -m lerobot.scripts.visualize_dataset_html \
+local$ python -m lerobot.scripts.visualize_dataset_html_urdf \
     --repo-id lerobot/pusht
 
 local$ open http://localhost:9090
@@ -41,7 +41,7 @@ local$ open http://localhost:9090
 
 - Visualize data stored on a distant machine with a local viewer:
 ```bash
-distant$ python -m lerobot.scripts.visualize_dataset_html \
+distant$ python -m lerobot.scripts.visualize_dataset_html_urdf \
     --repo-id lerobot/pusht
 
 local$ ssh -L 9090:localhost:9090 distant  # create a ssh tunnel
@@ -50,11 +50,11 @@ local$ open http://localhost:9090
 
 - Select episodes to visualize:
 ```bash
-python -m lerobot.scripts.visualize_dataset_html \
+python -m lerobot.scripts.visualize_dataset_html_urdf \
     --repo-id lerobot/pusht \
     --episodes 7 3 5 1 4
 ```
-python -m lerobot.scripts.visualize_dataset_html_urdf   --repo-id local/build_blocks_old   --root /mnt/data/local/build_blocks_old
+python -m lerobot.scripts.visualize_dataset_html_urdf --repo-id local/build_blocks_old  --root /home/data/lerobot
 """
 
 import argparse
@@ -418,7 +418,7 @@ def visualize_dataset_html(
         shutil.copy2(logo_src, logo_dst)
 
     # Expose local urdf-loader source and fixed tele URDF/meshes as static assets.
-    project_root = Path(__file__).resolve().parents[4]
+    project_root = Path(__file__).resolve().parents[3]
     urdf_loader_src = project_root / "urdf-loaders" / "javascript" / "src"
     tele_urdf_src = project_root / "urdf-loaders" / "urdf" / "tele"
     ensure_dir_available(urdf_loader_src, static_dir / "vendor" / "urdf-loader")

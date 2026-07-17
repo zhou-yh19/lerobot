@@ -343,11 +343,11 @@
             </div>
 
             {% if urdf_viewer.enabled %}
-            <div class="w-full xl:w-[500px] shrink-0 xl:ml-6">
+            <div class="w-full xl:w-[450px] shrink-0 xl:ml-4">
                 <p class="font-semibold mb-2">URDF Model</p>
                 <div class="border border-slate-700 rounded-xl bg-slate-900 p-2">
                     <urdf-viewer id="urdf-viewer"
-                        class="w-full h-[500px] block rounded bg-slate-900"
+                        class="w-full h-[450px] block rounded bg-slate-900"
                         up="{{ urdf_viewer.up }}"
                         display-shadow>
                     </urdf-viewer>
@@ -393,23 +393,24 @@
                 urdfJointBinding: null,
                 urdfJointTypeByName: {},
                 jointSignByName: {
-                    l_joint8: 1,
-                    r_joint8: 1,
+                    l_joint10: 1,
+                    l_joint11: 1,
+                    r_joint10: 1,
+                    r_joint11: 1,
                 },
                 jointRangeByName: {
-                    l_joint8: { min: 0.0, max: 0.6 },
-                    r_joint8: { min: 0.0, max: 0.6 },
+                    l_joint10: { min: 0.0, max: 0.05 },
+                    l_joint11: { min: 0.0, max: 0.05 },
+                    r_joint10: { min: 0.0, max: 0.05 },
+                    r_joint11: { min: 0.0, max: 0.05 },
                 },
                 // Dataset-space gripper ranges (user-calibrated):
-                // left: open ~1.3, close ~0.63
-                // right: open ~-1.3, close ~-0.66 (mirrored sign)
                 gripperInputRangeByName: {
-                    l_joint8: { inMin: 0.0, inMax: 1.30 },
-                    r_joint8: { inMin: 0.0, inMax: 1.30 },
+                    // Left empty — raw gripper values already in URDF [0, 0.05] range.
+                    // Adjust if your dataset uses a different gripper value range.
                 },
                 gripperInvertByName: {
-                    l_joint8: true,
-                    r_joint8: true,
+                    // Left empty — tune per-dataset if gripper direction is inverted.
                 },
                 pendingUrdfSyncTime: null,
                 urdfSyncRafId: null,
@@ -504,7 +505,7 @@
 
                     const joints = this.urdfViewer.robot.joints || {};
                     const jointNames = Object.keys(joints);
-                    const armJointNames = jointNames.filter((name) => /^(l|r)_joint[1-8]$/i.test(name));
+                    const armJointNames = jointNames.filter((name) => /^(l|r)_joint(?:[1-8]|1[01])$/i.test(name));
                     if (!jointNames.length) {
                         return;
                     }
@@ -514,14 +515,14 @@
                         this.urdfJointTypeByName[jointName] = joints[jointName].jointType;
                     });
 
-                    // Fixed mapping confirmed by user:
-                    // l_joint1..l_joint8 <- observation.state_0..7
-                    // r_joint1..r_joint8 <- observation.state_8..15
+                    // Fixed mapping: l_joint1..7 + l_joint10 (gripper) <- state_0..7
+                    //                r_joint1..7 + r_joint10 (gripper) <- state_8..15
+                    // Note: l_joint11 / r_joint11 mirror l_joint10 / r_joint10 values
                     const fixedJointOrder = [
                         'l_joint1', 'l_joint2', 'l_joint3', 'l_joint4',
-                        'l_joint5', 'l_joint6', 'l_joint7', 'l_joint8',
+                        'l_joint5', 'l_joint6', 'l_joint7', 'l_joint10',
                         'r_joint1', 'r_joint2', 'r_joint3', 'r_joint4',
-                        'r_joint5', 'r_joint6', 'r_joint7', 'r_joint8',
+                        'r_joint5', 'r_joint6', 'r_joint7', 'r_joint10',
                     ];
 
                     // Preferred deterministic mapping using backend `columns` metadata.
@@ -695,7 +696,7 @@
                     let changed = false;
                     for (const [jointName, binding] of Object.entries(this.urdfJointBinding)) {
                         const jt = this.urdfJointTypeByName[jointName];
-                        if (jt === 'prismatic' && jointName !== 'l_joint8' && jointName !== 'r_joint8') {
+                        if (jt === 'prismatic' && jointName !== 'l_joint10' && jointName !== 'l_joint11' && jointName !== 'r_joint10' && jointName !== 'r_joint11') {
                             continue;
                         }
 
@@ -706,10 +707,9 @@
                         value *= sign;
 
                         // Some datasets store one gripper channel with mirrored sign.
-                        // URDF limits for l_joint8/r_joint8 are [0, 0.6], so use absolute value.
-                        if (jointName === 'l_joint8' || jointName === 'r_joint8') {
-                            value = Math.abs(value);
-                        }
+                        // Gripper: pass raw value through (no abs/remap).
+                        // Raw dataset values should be within URDF [0, 0.05] limits.
+                        // Tune jointSignByName if direction is reversed.
 
                         // Gripper channels are often normalized in [-1, 1].
                         // Convert them to the URDF physical joint range.
@@ -753,6 +753,20 @@
 
                         this.urdfViewer.setJointValue(jointName, value);
                         changed = true;
+
+                        // Mirror gripper value to sibling finger (same value —
+                        // joint axes are already physically opposite in URDF, so
+                        // same value produces natural open/close motion).
+                        const mirrorJoint = {
+                            l_joint10: 'l_joint11', l_joint11: 'l_joint10',
+                            r_joint10: 'r_joint11', r_joint11: 'r_joint10',
+                        }[jointName];
+                        if (mirrorJoint && this.urdfViewer.robot.joints[mirrorJoint]) {
+                            this.urdfViewer.setJointValue(mirrorJoint, value);
+                        }
+                        if (/^(l|r)_joint1[01]$/.test(jointName)) {
+                            console.log('[URDF] gripper set:', jointName, value);
+                        }
                     }
 
                     if (changed) {
