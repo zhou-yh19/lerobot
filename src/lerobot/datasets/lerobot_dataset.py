@@ -692,7 +692,12 @@ class LeRobotDataset(torch.utils.data.Dataset):
         item = {}
         for vid_key, query_ts in query_timestamps.items():
             video_path = self.root / self.meta.get_video_file_path(ep_idx, vid_key)
-            frames = decode_video_frames(video_path, query_ts, self.tolerance_s, self.video_backend)
+            # `shape` is stored as (height, width, channels); decode_video_frames
+            # takes width before height.
+            height, width = self.meta.features[vid_key]["shape"][:2]
+            frames = decode_video_frames(
+                video_path, query_ts, self.tolerance_s, width, height, self.video_backend
+            )
             item[vid_key] = frames.squeeze(0)
 
         return item
